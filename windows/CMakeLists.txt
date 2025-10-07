@@ -6,6 +6,9 @@ project(recipe_app LANGUAGES CXX)
 # the on-disk name of your application.
 set(BINARY_NAME "recipe_app")
 
+# Include the utility CMake functions
+include(${CMAKE_CURRENT_SOURCE_DIR}/flutter/utils.cmake)
+
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
 cmake_policy(VERSION 3.14...3.25)
@@ -41,7 +44,7 @@ function(APPLY_STANDARD_SETTINGS TARGET)
   target_compile_features(${TARGET} PUBLIC cxx_std_17)
   target_compile_options(${TARGET} PRIVATE /W4 /WX /wd"4100")
   target_compile_options(${TARGET} PRIVATE /EHsc)
-  target_compile_definitions(${TARGET} PRIVATE "_HAS_EXCEPTIONS=0")
+  target_compile_definitions(${TARGET} PRIVATE "_HAS_EXCEPTIONS=1")
   target_compile_definitions(${TARGET} PRIVATE "$<$<CONFIG:Debug>:_DEBUG>")
 endfunction()
 

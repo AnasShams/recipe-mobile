@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../utils/image_helper.dart';
+import '../models/category.dart';
 
 class AddEditRecipePage extends StatefulWidget {
   final Map<String, dynamic>? recipe;
@@ -11,11 +12,17 @@ class AddEditRecipePage extends StatefulWidget {
   _AddEditRecipePageState createState() => _AddEditRecipePageState();
 }
 
+
 class _AddEditRecipePageState extends State<AddEditRecipePage> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _ingredientsController = TextEditingController();
   final _stepsController = TextEditingController();
+  final _categoryController = TextEditingController();
+  final _customCategoryController = TextEditingController();
+  
+  bool _isCustomCategory = false;
+  String? _selectedCategory;
   
   bool _isSaving = false;
   String? _selectedImageUrl;
@@ -28,6 +35,7 @@ class _AddEditRecipePageState extends State<AddEditRecipePage> {
       _titleController.text = widget.recipe!['title'] ?? '';
       _ingredientsController.text = widget.recipe!['ingredients'] ?? '';
       _stepsController.text = widget.recipe!['steps'] ?? '';
+      _categoryController.text = widget.recipe!['category'] ?? '';
       _existingImageUrl = widget.recipe!['image_url'];
     }
   }
@@ -65,6 +73,7 @@ class _AddEditRecipePageState extends State<AddEditRecipePage> {
         'ingredients': _ingredientsController.text.trim(),
         'steps': _stepsController.text.trim(),
         'user_id': user.id,
+        'category': _categoryController.text.trim(), // Always include category, even if empty
         if (_selectedImageUrl != null) 'image_url': _selectedImageUrl
         else if (_existingImageUrl != null) 'image_url': _existingImageUrl,
       };
@@ -240,6 +249,7 @@ class _AddEditRecipePageState extends State<AddEditRecipePage> {
     _titleController.dispose();
     _ingredientsController.dispose();
     _stepsController.dispose();
+    _categoryController.dispose();
     super.dispose();
   }
 }
