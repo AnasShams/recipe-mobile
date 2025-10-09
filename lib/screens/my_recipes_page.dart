@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/recipe.dart';
 import 'add_edit_recipe_page.dart';
 
 class MyRecipesPage extends StatefulWidget {
@@ -8,28 +9,32 @@ class MyRecipesPage extends StatefulWidget {
 }
 
 class _MyRecipesPageState extends State<MyRecipesPage> {
-  late Future<List<Map<String, dynamic>>> _recipesFuture;
+  late Future<List<Recipe>> _recipesFuture;
 
   @override
   void initState() {
     super.initState();
-    _recipesFuture = fetchRecipes();
+    _recipesFuture = _fetchUserRecipes();
   }
 
-  Future<List<Map<String, dynamic>>> fetchRecipes() async {
+  Future<List<Recipe>> _fetchUserRecipes() async {
     try {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return [];
 
       final response = await Supabase.instance.client
-          .from('recipes')
+          .from('user_recipes')
           .select()
           .eq('user_id', user.id)
           .order('created_at', ascending: false);
 
-      return List<Map<String, dynamic>>.from(response);
+      final List<Recipe> recipes = [];
+      for (final item in response) {
+        recipes.add(Recipe.fromMap(item, isUserRecipe: true));
+      }
+      return recipes;
     } catch (e) {
-      print('Error fetching recipes: $e');
+      print('Error fetching user recipes: $e');
       return [];
     }
   }
@@ -44,8 +49,47 @@ class _MyRecipesPageState extends State<MyRecipesPage> {
 
     if (result == true && mounted) {
       setState(() {
-        _recipesFuture = fetchRecipes();
+        _recipesFuture = _fetchUserRecipes();
       });
+    }
+  }
+
+  void _navigateToEditRecipe(Recipe recipe) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AddEditRecipePage(recipe: recipe),
+      ),
+    );
+
+    if (result == true && mounted) {
+      setState(() {
+        _recipesFuture = _fetchUserRecipes();
+      });
+    }
+  }
+
+  Future<void> _deleteRecipe(Recipe recipe) async {
+    try {
+      await Supabase.instance.client
+          .from('user_recipes')
+          .delete()
+          .eq('id', recipe.id);
+
+      if (mounted) {
+        setState(() {
+          _recipesFuture = _fetchUserRecipes();
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Recipe deleted successfully')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting recipe: $e')),
+        );
+      }
     }
   }
 
@@ -53,14 +97,14 @@ class _MyRecipesPageState extends State<MyRecipesPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('My Recipes'),
+        title: const Text('My Recipes'),
         actions: [
           Padding(
             padding: const EdgeInsets.all(8.0),
             child: ElevatedButton.icon(
               onPressed: _navigateToAddRecipe,
-              icon: Icon(Icons.add),
-              label: Text('Add Recipe'),
+              icon: const Icon(Icons.add),
+              label: const Text('Add Recipe'),
               style: ElevatedButton.styleFrom(
                 foregroundColor: Theme.of(context).colorScheme.onPrimary,
                 backgroundColor: Theme.of(context).colorScheme.primary,
@@ -72,14 +116,14 @@ class _MyRecipesPageState extends State<MyRecipesPage> {
       body: RefreshIndicator(
         onRefresh: () async {
           setState(() {
-            _recipesFuture = fetchRecipes();
+            _recipesFuture = _fetchUserRecipes();
           });
         },
-        child: FutureBuilder<List<Map<String, dynamic>>>(
+        child: FutureBuilder<List<Recipe>>(
           future: _recipesFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return Center(child: CircularProgressIndicator());
+              return const Center(child: CircularProgressIndicator());
             }
 
             if (snapshot.hasError) {
@@ -87,15 +131,15 @@ class _MyRecipesPageState extends State<MyRecipesPage> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text('Error loading recipes'),
-                    SizedBox(height: 8),
+                    const Text('Error loading recipes'),
+                    const SizedBox(height: 8),
                     ElevatedButton(
                       onPressed: () {
                         setState(() {
-                          _recipesFuture = fetchRecipes();
+                          _recipesFuture = _fetchUserRecipes();
                         });
                       },
-                      child: Text('Try Again'),
+                      child: const Text('Try Again'),
                     ),
                   ],
                 ),
@@ -110,16 +154,16 @@ class _MyRecipesPageState extends State<MyRecipesPage> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(Icons.restaurant_menu, size: 64, color: Colors.grey),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
                     Text(
                       'No recipes yet',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
-                    SizedBox(height: 8),
+                    const SizedBox(height: 8),
                     ElevatedButton.icon(
                       onPressed: _navigateToAddRecipe,
-                      icon: Icon(Icons.add),
-                      label: Text('Add Your First Recipe'),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add Your First Recipe'),
                     ),
                   ],
                 ),
@@ -128,75 +172,113 @@ class _MyRecipesPageState extends State<MyRecipesPage> {
 
             return ListView.builder(
               itemCount: recipes.length,
-              padding: EdgeInsets.all(8),
+              padding: const EdgeInsets.all(8),
               itemBuilder: (context, index) {
                 final recipe = recipes[index];
                 return Card(
-                  margin: EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                  margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
                   child: InkWell(
-                    onTap: () async {
-                      final result = await Navigator.pushNamed(
-                        context,
-                        '/recipe_detail',
-                        arguments: recipe,
-                      );
-                      // Refresh the list if the recipe was edited or deleted
-                      if (mounted && (result == true || result == 'deleted')) {
-                        setState(() {
-                          _recipesFuture = fetchRecipes();
-                        });
-                      }
-                    },
+                    onTap: () => _navigateToEditRecipe(recipe),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (recipe['image_url'] != null)
+                        if (recipe.imageUrl != null)
                           Container(
                             height: 200,
                             width: double.infinity,
                             decoration: BoxDecoration(
-                              borderRadius: BorderRadius.vertical(
+                              borderRadius: const BorderRadius.vertical(
                                 top: Radius.circular(4),
                               ),
                               image: DecorationImage(
-                                image: NetworkImage(recipe['image_url']),
+                                image: NetworkImage(recipe.imageUrl!),
                                 fit: BoxFit.cover,
                               ),
                             ),
                           ),
-                        ListTile(
-                          title: Text(
-                            recipe['title'] ?? 'Untitled Recipe',
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          subtitle: Column(
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              if (recipe['category'] != null) ...[
-                                SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      recipe.title,
+                                      style: Theme.of(context).textTheme.titleLarge,
+                                    ),
+                                  ),
+                                  PopupMenuButton<String>(
+                                    onSelected: (value) {
+                                      if (value == 'edit') {
+                                        _navigateToEditRecipe(recipe);
+                                      } else if (value == 'delete') {
+                                        showDialog(
+                                          context: context,
+                                          builder: (context) => AlertDialog(
+                                            title: const Text('Delete Recipe'),
+                                            content: const Text('Are you sure you want to delete this recipe?'),
+                                            actions: [
+                                              TextButton(
+                                                child: const Text('Cancel'),
+                                                onPressed: () => Navigator.pop(context),
+                                              ),
+                                              TextButton(
+                                                child: const Text(
+                                                  'Delete',
+                                                  style: TextStyle(color: Colors.red),
+                                                ),
+                                                onPressed: () {
+                                                  Navigator.pop(context);
+                                                  _deleteRecipe(recipe);
+                                                },
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }
+                                    },
+                                    itemBuilder: (context) => [
+                                      const PopupMenuItem(
+                                        value: 'edit',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.edit, size: 20),
+                                            SizedBox(width: 8),
+                                            Text('Edit'),
+                                          ],
+                                        ),
+                                      ),
+                                      const PopupMenuItem(
+                                        value: 'delete',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.delete, size: 20, color: Colors.red),
+                                            SizedBox(width: 8),
+                                            Text('Delete', style: TextStyle(color: Colors.red)),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              if (recipe.category.isNotEmpty) ...[
                                 Chip(
-                                  label: Text(recipe['category']),
+                                  label: Text(recipe.category),
                                   backgroundColor: Theme.of(context)
                                       .colorScheme
                                       .secondaryContainer,
                                 ),
+                                const SizedBox(height: 8),
                               ],
-                              SizedBox(height: 4),
-                              Row(
-                                children: [
-                                  Icon(
-                                    recipe['is_public'] == true
-                                        ? Icons.public
-                                        : Icons.lock,
-                                    size: 16,
-                                  ),
-                                  SizedBox(width: 4),
-                                  Text(
-                                    recipe['is_public'] == true
-                                        ? 'Public'
-                                        : 'Private',
-                                  ),
-                                ],
+                              Text(
+                                'Created ${_formatDate(recipe.createdAt)}',
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: Colors.grey,
+                                ),
                               ),
                             ],
                           ),
@@ -211,5 +293,20 @@ class _MyRecipesPageState extends State<MyRecipesPage> {
         ),
       ),
     );
+  }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+
+    if (difference.inDays == 0) {
+      return 'Today';
+    } else if (difference.inDays == 1) {
+      return 'Yesterday';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays} days ago';
+    } else {
+      return '${(difference.inDays / 7).floor()} weeks ago';
+    }
   }
 }

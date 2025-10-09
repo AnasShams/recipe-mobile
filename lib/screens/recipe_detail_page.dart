@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/recipe.dart';
 
 class RecipeDetailPage extends StatefulWidget {
   @override
@@ -19,7 +20,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
   }
 
   Future<void> _checkIfSaved() async {
-    final recipe = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+    final recipe = ModalRoute.of(context)!.settings.arguments as Recipe;
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) return;
 
@@ -27,7 +28,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       final response = await Supabase.instance.client
           .from('saved_recipes')
           .select()
-          .eq('recipe_id', recipe['id'])
+          .eq('recipe_id', recipe.id)
           .eq('user_id', user.id)
           .limit(1);
       
@@ -41,7 +42,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
     }
   }
 
-  Future<void> _toggleSave(Map<String, dynamic> recipe) async {
+  Future<void> _toggleSave(Recipe recipe) async {
     if (_isSaving) return;
 
     setState(() {
@@ -52,7 +53,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Please log in to save recipes')),
+          const SnackBar(content: Text('Please log in to save recipes')),
         );
         return;
       }
@@ -62,12 +63,12 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         await Supabase.instance.client
             .from('saved_recipes')
             .delete()
-            .eq('recipe_id', recipe['id'])
+            .eq('recipe_id', recipe.id)
             .eq('user_id', user.id);
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Recipe removed from saved')),
+            const SnackBar(content: Text('Recipe removed from saved')),
           );
         }
       } else {
@@ -75,14 +76,14 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         await Supabase.instance.client
             .from('saved_recipes')
             .insert({
-              'recipe_id': recipe['id'],
+              'recipe_id': recipe.id,
               'user_id': user.id,
               'saved_at': DateTime.now().toIso8601String(),
-            }).select();
+            });
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Recipe saved successfully')),
+            const SnackBar(content: Text('Recipe saved successfully')),
           );
         }
       }
@@ -108,7 +109,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
     }
   }
 
-  Future<void> _deleteRecipe(BuildContext context, Map<String, dynamic> recipe) async {
+  Future<void> _deleteRecipe(BuildContext context, Recipe recipe) async {
     if (_isDeleting) return;
 
     setState(() {
@@ -116,30 +117,22 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
     });
 
     try {
-      final recipeId = recipe['id'];
-      print('Attempting to delete recipe with ID: $recipeId');
-      
       // First delete any saved recipes references
       await Supabase.instance.client
           .from('saved_recipes')
           .delete()
-          .eq('recipe_id', recipeId);
+          .eq('recipe_id', recipe.id);
       
       // Then delete the recipe itself
       await Supabase.instance.client
           .from('recipes')
           .delete()
-          .eq('id', recipeId);
+          .eq('id', recipe.id);
       
       if (mounted) {
-        // First pop the dialog if it's showing
-        if (Navigator.canPop(context)) {
-          Navigator.pop(context);
-        }
-        // Navigate back with result to trigger refresh
         Navigator.of(context).pop('deleted');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Recipe deleted successfully')),
+          const SnackBar(content: Text('Recipe deleted successfully')),
         );
       }
     } catch (e) {
@@ -160,13 +153,13 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final recipe = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+    final recipe = ModalRoute.of(context)!.settings.arguments as Recipe;
     final currentUser = Supabase.instance.client.auth.currentUser;
-    final isOwner = currentUser?.id == recipe['user_id'];
+    final isOwner = currentUser?.id == recipe.userId;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Recipe Details'),
+        title: const Text('Recipe Details'),
         actions: [
           if (!isOwner) 
             IconButton(
@@ -188,7 +181,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
             ),
           if (isOwner) ...[
             IconButton(
-              icon: Icon(Icons.edit),
+              icon: const Icon(Icons.edit),
               tooltip: 'Edit Recipe',
               onPressed: () {
                 Navigator.pushNamed(
@@ -212,7 +205,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                         valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                       ),
                     )
-                  : Icon(Icons.delete),
+                  : const Icon(Icons.delete),
               tooltip: 'Delete Recipe',
               onPressed: _isDeleting
                   ? null
@@ -220,15 +213,15 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                       showDialog(
                         context: context,
                         builder: (context) => AlertDialog(
-                          title: Text('Delete Recipe'),
-                          content: Text('Are you sure you want to delete this recipe?'),
+                          title: const Text('Delete Recipe'),
+                          content: const Text('Are you sure you want to delete this recipe?'),
                           actions: [
                             TextButton(
-                              child: Text('Cancel'),
+                              child: const Text('Cancel'),
                               onPressed: () => Navigator.pop(context),
                             ),
                             TextButton(
-                              child: Text(
+                              child: const Text(
                                 'Delete',
                                 style: TextStyle(color: Colors.red),
                               ),
@@ -244,66 +237,78 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
             ),
           ],
           IconButton(
-            icon: Icon(Icons.copy),
+            icon: const Icon(Icons.copy),
             tooltip: 'Copy Recipe',
             onPressed: () {
               final textToCopy = '''
-${recipe['title']}
+${recipe.title}
+
+Category: ${recipe.category}
 
 Ingredients:
-${recipe['ingredients']}
+${recipe.ingredients}
 
 Steps:
-${recipe['steps']}
+${recipe.steps}
 ''';
               Clipboard.setData(ClipboardData(text: textToCopy));
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Recipe copied to clipboard')),
+                const SnackBar(content: Text('Recipe copied to clipboard')),
               );
             },
           ),
         ],
       ),
       body: SingleChildScrollView(
-        padding: EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (recipe['image_url'] != null)
+            if (recipe.imageUrl != null)
               Container(
                 height: 200,
                 width: double.infinity,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(8),
                   image: DecorationImage(
-                    image: NetworkImage(recipe['image_url']),
+                    image: NetworkImage(recipe.imageUrl!),
                     fit: BoxFit.cover,
                   ),
                 ),
               ),
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
             SelectableText(
-              recipe['title'] ?? 'No Title',
+              recipe.title,
               style: Theme.of(context).textTheme.headlineMedium,
             ),
-            SizedBox(height: 24),
+            const SizedBox(height: 8),
+            if (recipe.category.isNotEmpty)
+              Chip(
+                label: Text(recipe.category),
+                backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+              ),
+            const SizedBox(height: 16),
             Text(
               'Ingredients',
-              style: Theme.of(context).textTheme.titleLarge,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
             ),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
             SelectableText(
-              recipe['ingredients'] ?? 'No ingredients listed',
+              recipe.ingredients,
               style: Theme.of(context).textTheme.bodyLarge,
             ),
-            SizedBox(height: 24),
+            const SizedBox(height: 24),
             Text(
               'Steps',
-              style: Theme.of(context).textTheme.titleLarge,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
             ),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
             SelectableText(
-              recipe['steps'] ?? 'No steps listed',
+              recipe.steps,
               style: Theme.of(context).textTheme.bodyLarge,
             ),
           ],

@@ -1,24 +1,34 @@
 class Category {
+  final int id;
   final String name;
-  final String? id;
 
-  const Category({required this.name, this.id});
+  const Category({required this.id, required this.name});
 
-  static const List<Category> predefinedCategories = [
-    Category(name: 'Main Course'),
-    Category(name: 'Appetizer'),
-    Category(name: 'Dessert'),
-    Category(name: 'Breakfast'),
-    Category(name: 'Lunch'),
-    Category(name: 'Dinner'),
-    Category(name: 'Snack'),
-    Category(name: 'Soup'),
-    Category(name: 'Salad'),
-    Category(name: 'Beverage'),
-    Category(name: 'Baked Goods'),
-    Category(name: 'Vegetarian'),
-    Category(name: 'Vegan'),
-    Category(name: 'Seafood'),
-    Category(name: 'Other'),
-  ];
+  factory Category.fromMap(Map<String, dynamic> map) {
+    return Category(
+      id: map['id'] ?? 0,
+      name: map['name'] ?? '',
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+    };
+  }
+
+  @override
+  String toString() {
+    return 'Category(id: $id, name: $name)';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is Category && other.id == id && other.name == name;
+  }
+
+  @override
+  int get hashCode => id.hashCode ^ name.hashCode;
 }

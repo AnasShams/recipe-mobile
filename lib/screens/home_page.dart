@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/recipe.dart';
 
 class HomePage extends StatefulWidget {
   @override
@@ -7,40 +8,45 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  late Future<List<Map<String, dynamic>>> _recipesFuture;
+  late Future<List<Recipe>> _recipesFuture;
 
   @override
   void initState() {
     super.initState();
-    _recipesFuture = fetchPublicRecipes();
+    _recipesFuture = _fetchPublicRecipes();
   }
 
-  Future<List<Map<String, dynamic>>> fetchPublicRecipes() async {
+  Future<List<Recipe>> _fetchPublicRecipes() async {
     try {
-      final currentUser = Supabase.instance.client.auth.currentUser;
-      
-      final response = await Supabase.instance.client
+      // Fetch pre-loaded public recipes
+      final preloadedRecipesResponse = await Supabase.instance.client
           .from('recipes')
-          .select('''
-            id,
-            user_id,
-            title,
-            image_url,
-            ingredients,
-            steps,
-            is_public,
-            created_at,
-            updated_at,
-            category,
-            category_id,
-            profiles (
-              username,
-              avatar_url
-            )
-          ''')
-          .eq('is_public', true);
+          .select()
+          .eq('is_public', true)
+          .order('created_at', ascending: false);
 
-      return List<Map<String, dynamic>>.from(response);
+      // Fetch user-created public recipes
+      final userRecipesResponse = await Supabase.instance.client
+          .from('user_recipes')
+          .select()
+          .order('created_at', ascending: false);
+
+      final List<Recipe> allRecipes = [];
+
+      // Add pre-loaded recipes
+      for (final item in preloadedRecipesResponse) {
+        allRecipes.add(Recipe.fromMap(item, isUserRecipe: false));
+      }
+
+      // Add user recipes
+      for (final item in userRecipesResponse) {
+        allRecipes.add(Recipe.fromMap(item, isUserRecipe: true));
+      }
+
+      // Sort by creation date (newest first)
+      allRecipes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+      return allRecipes;
     } catch (error) {
       print('Error fetching recipes: $error');
       return [];
@@ -49,7 +55,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _refreshRecipes() async {
     setState(() {
-      _recipesFuture = fetchPublicRecipes();
+      _recipesFuture = _fetchPublicRecipes();
     });
   }
 
@@ -57,15 +63,15 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Discover Recipes'),
+        title: const Text('Discover Recipes'),
       ),
       body: RefreshIndicator(
         onRefresh: _refreshRecipes,
-        child: FutureBuilder<List<Map<String, dynamic>>>(
+        child: FutureBuilder<List<Recipe>>(
           future: _recipesFuture,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return Center(child: CircularProgressIndicator());
+              return const Center(child: CircularProgressIndicator());
             }
 
             if (snapshot.hasError) {
@@ -76,11 +82,11 @@ class _HomePageState extends State<HomePage> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text('Error loading recipes'),
-                        SizedBox(height: 8),
+                        const Text('Error loading recipes'),
+                        const SizedBox(height: 8),
                         TextButton(
                           onPressed: _refreshRecipes,
-                          child: Text('Try Again'),
+                          child: const Text('Try Again'),
                         ),
                       ],
                     ),
@@ -100,12 +106,12 @@ class _HomePageState extends State<HomePage> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(Icons.restaurant, size: 64, color: Colors.grey),
-                        SizedBox(height: 16),
+                        const SizedBox(height: 16),
                         Text(
                           'No recipes available',
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
-                        SizedBox(height: 8),
+                        const SizedBox(height: 8),
                         Text(
                           'Pull down to refresh',
                           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -121,13 +127,11 @@ class _HomePageState extends State<HomePage> {
 
             return ListView.builder(
               itemCount: recipes.length,
-              padding: EdgeInsets.all(8),
+              padding: const EdgeInsets.all(8),
               itemBuilder: (context, index) {
                 final recipe = recipes[index];
-                final profile = recipe['profiles'] as Map<String, dynamic>?;
-                
                 return Card(
-                  margin: EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                  margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
                   child: InkWell(
                     onTap: () => Navigator.pushNamed(
                       context,
@@ -137,48 +141,65 @@ class _HomePageState extends State<HomePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (recipe['image_url'] != null)
+                        if (recipe.imageUrl != null)
                           Container(
                             height: 200,
                             width: double.infinity,
                             decoration: BoxDecoration(
-                              borderRadius: BorderRadius.vertical(
+                              borderRadius: const BorderRadius.vertical(
                                 top: Radius.circular(4),
                               ),
                               image: DecorationImage(
-                                image: NetworkImage(recipe['image_url']),
+                                image: NetworkImage(recipe.imageUrl!),
                                 fit: BoxFit.cover,
                               ),
                             ),
                           ),
-                        ListTile(
-                          title: Text(
-                            recipe['title'] ?? 'Untitled Recipe',
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          subtitle: Column(
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              if (recipe['category'] != null) ...[
-                                SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      recipe.title,
+                                      style: Theme.of(context).textTheme.titleLarge,
+                                    ),
+                                  ),
+                                  if (recipe.isUserRecipe)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue[50],
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        'User Recipe',
+                                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                          color: Colors.blue[700],
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              if (recipe.category.isNotEmpty) ...[
                                 Chip(
-                                  label: Text(recipe['category']),
+                                  label: Text(recipe.category),
                                   backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
                                 ),
+                                const SizedBox(height: 8),
                               ],
-                              SizedBox(height: 4),
-                              if (profile != null)
-                                Row(
-                                  children: [
-                                    if (profile['avatar_url'] != null)
-                                      CircleAvatar(
-                                        radius: 12,
-                                        backgroundImage: NetworkImage(profile['avatar_url']),
-                                      ),
-                                    SizedBox(width: 8),
-                                    Text('by ${profile['username'] ?? 'Unknown'}'),
-                                  ],
+                              Text(
+                                recipe.isUserRecipe ? 'User Created' : 'Pre-loaded Recipe',
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: Colors.grey,
+                                  fontStyle: FontStyle.italic,
                                 ),
+                              ),
                             ],
                           ),
                         ),
