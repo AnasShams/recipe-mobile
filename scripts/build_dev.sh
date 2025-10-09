@@ -1,0 +1,2 @@
+#!/bin/bash
+flutter build apk --debug --dart-define=SUPABASE_URL=$SUPABASE_URL --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY --dart-define=ENVIRONMENT=development

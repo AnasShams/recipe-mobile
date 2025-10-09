@@ -12,15 +12,66 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
   bool _isDeleting = false;
   bool _isSaving = false;
   bool _isSaved = false;
+  late Recipe _recipe;
+  bool _isInitialized = false;
 
   @override
   void initState() {
     super.initState();
-    _checkIfSaved();
+    // Don't access context here, wait for didChangeDependencies
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    
+    if (!_isInitialized) {
+      // Get the recipe from arguments - this is safe to do in didChangeDependencies
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args != null) {
+        _initializeRecipe(args);
+      } else {
+        // Handle case where no arguments are provided
+        _handleError('No recipe data provided');
+      }
+    }
+  }
+
+  void _initializeRecipe(dynamic args) {
+    try {
+      if (args is Recipe) {
+        _recipe = args;
+      } else if (args is Map<String, dynamic>) {
+        // Handle case where Map is passed (backward compatibility)
+        final isUserRecipe = args['isUserRecipe'] ?? false;
+        _recipe = Recipe.fromMap(args, isUserRecipe: isUserRecipe);
+      } else {
+        throw Exception('Invalid arguments type: ${args.runtimeType}');
+      }
+      
+      _isInitialized = true;
+      _checkIfSaved();
+    } catch (e) {
+      _handleError('Error initializing recipe: $e');
+    }
+  }
+
+  void _handleError(String error) {
+    print(error);
+    // You might want to navigate back or show an error screen
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error)),
+        );
+        Navigator.of(context).pop();
+      }
+    });
   }
 
   Future<void> _checkIfSaved() async {
-    final recipe = ModalRoute.of(context)!.settings.arguments as Recipe;
+    if (!_isInitialized) return;
+    
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) return;
 
@@ -28,7 +79,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
       final response = await Supabase.instance.client
           .from('saved_recipes')
           .select()
-          .eq('recipe_id', recipe.id)
+          .eq('recipe_id', _recipe.id)
           .eq('user_id', user.id)
           .limit(1);
       
@@ -42,8 +93,8 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
     }
   }
 
-  Future<void> _toggleSave(Recipe recipe) async {
-    if (_isSaving) return;
+  Future<void> _toggleSave() async {
+    if (_isSaving || !_isInitialized) return;
 
     setState(() {
       _isSaving = true;
@@ -63,7 +114,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         await Supabase.instance.client
             .from('saved_recipes')
             .delete()
-            .eq('recipe_id', recipe.id)
+            .eq('recipe_id', _recipe.id)
             .eq('user_id', user.id);
         
         if (mounted) {
@@ -76,7 +127,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
         await Supabase.instance.client
             .from('saved_recipes')
             .insert({
-              'recipe_id': recipe.id,
+              'recipe_id': _recipe.id,
               'user_id': user.id,
               'saved_at': DateTime.now().toIso8601String(),
             });
@@ -109,25 +160,42 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
     }
   }
 
-  Future<void> _deleteRecipe(BuildContext context, Recipe recipe) async {
-    if (_isDeleting) return;
+  Future<void> _deleteRecipe(BuildContext context) async {
+    if (_isDeleting || !_isInitialized) return;
 
     setState(() {
       _isDeleting = true;
     });
 
     try {
-      // First delete any saved recipes references
-      await Supabase.instance.client
-          .from('saved_recipes')
-          .delete()
-          .eq('recipe_id', recipe.id);
+      if (_recipe.isUserRecipe) {
+        // Delete from user_recipes table
+        await Supabase.instance.client
+            .from('user_recipes')
+            .delete()
+            .eq('id', _recipe.id);
+      } else {
+        // For pre-loaded recipes, we might not want to delete them
+        // Instead, we can remove them from saved_recipes
+        final user = Supabase.instance.client.auth.currentUser;
+        if (user != null) {
+          await Supabase.instance.client
+              .from('saved_recipes')
+              .delete()
+              .eq('recipe_id', _recipe.id)
+              .eq('user_id', user.id);
+        }
+      }
       
-      // Then delete the recipe itself
-      await Supabase.instance.client
-          .from('recipes')
-          .delete()
-          .eq('id', recipe.id);
+      // Also remove from saved_recipes
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user != null) {
+        await Supabase.instance.client
+            .from('saved_recipes')
+            .delete()
+            .eq('recipe_id', _recipe.id)
+            .eq('user_id', user.id);
+      }
       
       if (mounted) {
         Navigator.of(context).pop('deleted');
@@ -153,9 +221,26 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final recipe = ModalRoute.of(context)!.settings.arguments as Recipe;
+    if (!_isInitialized) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Recipe Details'),
+        ),
+        body: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Loading recipe...'),
+            ],
+          ),
+        ),
+      );
+    }
+
     final currentUser = Supabase.instance.client.auth.currentUser;
-    final isOwner = currentUser?.id == recipe.userId;
+    final isOwner = currentUser?.id == _recipe.userId;
 
     return Scaffold(
       appBar: AppBar(
@@ -177,9 +262,9 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                       color: _isSaved ? Theme.of(context).colorScheme.primary : null,
                     ),
               tooltip: _isSaved ? 'Unsave Recipe' : 'Save Recipe',
-              onPressed: _isSaving ? null : () => _toggleSave(recipe),
+              onPressed: _isSaving ? null : _toggleSave,
             ),
-          if (isOwner) ...[
+          if (isOwner && _recipe.isUserRecipe) ...[
             IconButton(
               icon: const Icon(Icons.edit),
               tooltip: 'Edit Recipe',
@@ -187,9 +272,9 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                 Navigator.pushNamed(
                   context,
                   '/edit_recipe',
-                  arguments: recipe,
+                  arguments: _recipe,
                 ).then((edited) {
-                  if (edited == true) {
+                  if (edited == true && mounted) {
                     Navigator.pop(context, true);
                   }
                 });
@@ -227,7 +312,7 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
                               ),
                               onPressed: () {
                                 Navigator.pop(context);
-                                _deleteRecipe(context, recipe);
+                                _deleteRecipe(context);
                               },
                             ),
                           ],
@@ -241,15 +326,15 @@ class _RecipeDetailPageState extends State<RecipeDetailPage> {
             tooltip: 'Copy Recipe',
             onPressed: () {
               final textToCopy = '''
-${recipe.title}
+${_recipe.title}
 
-Category: ${recipe.category}
+Category: ${_recipe.category}
 
 Ingredients:
-${recipe.ingredients}
+${_recipe.ingredients}
 
 Steps:
-${recipe.steps}
+${_recipe.steps}
 ''';
               Clipboard.setData(ClipboardData(text: textToCopy));
               ScaffoldMessenger.of(context).showSnackBar(
@@ -264,27 +349,47 @@ ${recipe.steps}
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (recipe.imageUrl != null)
+            if (_recipe.imageUrl != null)
               Container(
                 height: 200,
                 width: double.infinity,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(8),
                   image: DecorationImage(
-                    image: NetworkImage(recipe.imageUrl!),
+                    image: NetworkImage(_recipe.imageUrl!),
                     fit: BoxFit.cover,
                   ),
                 ),
               ),
             const SizedBox(height: 16),
+            Row(
+              children: [
+                if (_recipe.isUserRecipe)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      'User Recipe',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Colors.blue[700],
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
             SelectableText(
-              recipe.title,
+              _recipe.title,
               style: Theme.of(context).textTheme.headlineMedium,
             ),
             const SizedBox(height: 8),
-            if (recipe.category.isNotEmpty)
+            if (_recipe.category.isNotEmpty)
               Chip(
-                label: Text(recipe.category),
+                label: Text(_recipe.category),
                 backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
               ),
             const SizedBox(height: 16),
@@ -296,7 +401,7 @@ ${recipe.steps}
             ),
             const SizedBox(height: 8),
             SelectableText(
-              recipe.ingredients,
+              _recipe.ingredients,
               style: Theme.of(context).textTheme.bodyLarge,
             ),
             const SizedBox(height: 24),
@@ -308,7 +413,7 @@ ${recipe.steps}
             ),
             const SizedBox(height: 8),
             SelectableText(
-              recipe.steps,
+              _recipe.steps,
               style: Theme.of(context).textTheme.bodyLarge,
             ),
           ],
